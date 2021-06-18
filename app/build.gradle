@@ -4,23 +4,55 @@ plugins {
 }
 
 android {
-    compileSdkVersion 30
-    buildToolsVersion "30.0.3"
+    compileSdkVersion 29
+    buildToolsVersion "29.0.3"
+
+    publishNonDefault true
 
     defaultConfig {
         applicationId "com.neoqee.facemachine"
         minSdkVersion 21
-        targetSdkVersion 30
+        targetSdkVersion 29
         versionCode 1
         versionName "1.0"
+        multiDexEnabled true
+
+        ndk {
+            moduleName "facesdk"
+            ldLibs "log"
+            abiFilters "armeabi-v7a"
+        }
+        javaCompileOptions {
+            annotationProcessorOptions{
+                arguments += ["room.schemaLocation" : "$projectDir/schemas".toString()]
+            }
+        }
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    sourceSets.main {
+        jni.srcDirs = []
+        jniLibs.srcDir "libs"
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            debuggable true
+            jniDebuggable true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            buildConfigField 'boolean', 'USE_AIKL', 'true'
+        }
+        debug {
+            minifyEnabled false
+            debuggable true
+            jniDebuggable true
+            buildConfigField 'boolean', 'USE_AIKL', 'true'
         }
     }
     compileOptions {
@@ -30,6 +62,15 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    packagingOptions {
+        exclude 'META-INF/INDEX.LIST'
+        exclude 'META-INF/io.netty.versions.properties'
+    }
+}
+
+configurations {
+    cleanedAnnotations
+    compile.exclude group: 'org.jetbrains' , module:'annotations'
 }
 
 dependencies {
@@ -42,4 +83,20 @@ dependencies {
     testImplementation 'junit:junit:4.+'
     androidTestImplementation 'androidx.test.ext:junit:1.1.1'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.2.0'
+
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.3.9"
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.9")
+
+    // 百度AI SDK demo中的配置
+    implementation fileTree(includes: ['*.jar'], dir: 'libs')
+    implementation 'org.jetbrains:annotations-java5:15.0'
+    implementation files('libs/orbbec_module-debug.aar')
+    implementation files('libs/FaceSDK-6.0.jar')
+    implementation files('libs/bd_unifylicense.jar')
+    implementation files('libs\\armtsdkapi-1.0.2_20200719.jar')
+
+    implementation "com.safframework.kotlin.coroutines:coroutines-utils:1.1.2"
+    implementation files('libs/core-debug.aar')
+    implementation files('libs/file-debug.aar')
+    implementation files('libs/gson-debug.aar')
 }
