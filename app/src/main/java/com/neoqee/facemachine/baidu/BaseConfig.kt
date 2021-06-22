@@ -1,13 +1,11 @@
 package com.yangfei.faceacm.model
 
-import com.squareup.moshi.JsonClass
 
 /**
  * author : shangrong
  * date : 2019/5/22 9:10 PM
  * description :配置文件
  */
-@JsonClass(generateAdapter = true)
 class BaseConfig {
     // 设备通信密码
     var dPass: String = ""
