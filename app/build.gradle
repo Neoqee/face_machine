@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'kotlin-android'
+    id 'kotlin-kapt'
 }
 
 android {
@@ -99,4 +100,11 @@ dependencies {
     implementation files('libs/core-debug.aar')
     implementation files('libs/file-debug.aar')
     implementation files('libs/gson-debug.aar')
+
+    // Room 数据库
+    def room_version = "2.3.0"
+    implementation "androidx.room:room-runtime:$room_version"
+    kapt "androidx.room:room-compiler:$room_version"
+    // optional - Kotlin Extensions and Coroutines support for Room
+    implementation "androidx.room:room-ktx:$room_version"
 }
