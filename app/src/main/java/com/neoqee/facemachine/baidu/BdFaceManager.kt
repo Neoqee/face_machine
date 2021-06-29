@@ -1,6 +1,7 @@
 package com.neoqee.facemachine.baidu
 
 import android.content.Context
+import android.util.Log
 import com.baidu.idl.main.facesdk.*
 import com.baidu.idl.main.facesdk.model.*
 import com.neoqee.facemachine.face.*
@@ -57,13 +58,38 @@ object BdFaceManager : IFaceManager {
     override fun initModel(context: Context, listener: IFaceModelInitListener?) {
         // 检测接口
         val bdFaceInstance = BDFaceInstance()
+        bdFaceInstance.creatInstance()
         faceDetect = FaceDetect(bdFaceInstance)
+
+        val bdFaceInstanceNir = BDFaceInstance()
+        bdFaceInstanceNir.creatInstance()
+        faceDetectNir = FaceDetect(bdFaceInstanceNir)
+
+        // 活体接口
+        faceLive = FaceLive()
+
+        // 特征抽取接口
+        faceFeature = FaceFeature()
+
+        // 抠图能力接口
+        faceCrop = FaceCrop()
+
+        // 口罩检测接口
+        faceMouthMask = FaceMouthMask()
+
+        // 图片光照检测接口
+        imageIllum = ImageIllum()
 
         // 1.2.7 配置信息加载
         // 说明：检测最小人脸，是否开启内部质量检测，检测或者追踪时间间隔等配置（只适用于3.2及以下版本的detect、track接口）
         val bdFaceSDKConfig = BDFaceSDKConfig().apply {
             maxDetectNum = 1
-            minFaceSize = SingleBaseConfig.getBaseConfig().minimumFace
+            minFaceSize = 80
+            isAttribute = false
+            isHeadPose = true
+            isIllumination = true
+            isOcclusion = true
+            isCheckBlur = true
         }
         faceDetect.loadConfig(bdFaceSDKConfig)
 
@@ -129,8 +155,7 @@ object BdFaceManager : IFaceManager {
             callbackHandle(code, msg, listener)
         }
 
-        val bdFaceInstanceNir = BDFaceInstance()
-        faceDetectNir = FaceDetect(bdFaceInstanceNir)
+
         faceDetectNir.initModel(
             context,
             GlobalSet.DETECT_NIR_MODE,
@@ -141,8 +166,7 @@ object BdFaceManager : IFaceManager {
             callbackHandle(code, msg, listener)
         }
 
-        // 活体接口
-        faceLive = FaceLive()
+
         // 1.3.1 活体模型加载
         // 说明：静默活体检测模型初始化，可见光活体模型，深度活体，近红外活体模型初始化
         faceLive.initModel(
@@ -154,8 +178,7 @@ object BdFaceManager : IFaceManager {
             callbackHandle(code, msg, listener)
         }
 
-        // 特征抽取接口
-        faceFeature = FaceFeature()
+
         // 1.4.1 特征模型加载
         // 说明：离线特征获取模型加载，目前支持可见光模型，近红外检测模型（非必要参数，可以为空），证件照模型；
         // 用户根据自己场景，选择相应场景模型
@@ -170,15 +193,13 @@ object BdFaceManager : IFaceManager {
             callbackHandle(code, msg, listener)
         }
 
-        // 抠图能力接口
-        faceCrop = FaceCrop()
+
         // 1.8.1 initFaceCrop抠图能力加载
         faceCrop.initFaceCrop { code, msg ->
             callbackHandle(code, msg, listener)
         }
 
-        // 口罩检测接口
-        faceMouthMask = FaceMouthMask()
+
         // 1.9.1 口罩检测模型加载
         // 说明：加载口罩检测模型
         faceMouthMask.initModel(
@@ -188,13 +209,13 @@ object BdFaceManager : IFaceManager {
             callbackHandle(code, msg, listener)
         }
 
-        // 图片光照检测接口
-        imageIllum = ImageIllum()
+
 
         listener?.initModelSuccess()
     }
 
     private fun callbackHandle(code: Int, msg: String, listener: IFaceModelInitListener?) {
+        Log.e("Neoqee","code = $code msg = $msg")
         if (code != 0) {
             listener?.initModelFailure(code, msg)
         }
@@ -219,7 +240,7 @@ object BdFaceManager : IFaceManager {
     }
 
     private val asCoroutineDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    private var job1: Job? = null
+    private var job1: Deferred<*>? = null
     private fun onFastDetect(
         rgbData: ByteArray?,
         nirData: ByteArray?,
@@ -228,71 +249,73 @@ object BdFaceManager : IFaceManager {
         srcHeight: Int,
         callback: OnBdFaceDetectCallback?
     ) {
-        if (job1 != null && job1!!.isCompleted) {
+        if (job1 != null && !job1!!.isCompleted) {
             return
         }
-        job1 = GlobalScope.async(asCoroutineDispatcher) {
-            val startTime = System.currentTimeMillis()
-            // 创建检测结果存储数据
-            val livenessModel = LivenessModel()
-            val rgbInstance = BDFaceImageInstance(
-                rgbData, srcHeight, srcWidth,
-                BDFaceSDKCommon.BDFaceImageType.BDFACE_IMAGE_TYPE_YUV_NV21,
-                SingleBaseConfig.getBaseConfig().detectDirection.toFloat(),
-                SingleBaseConfig.getBaseConfig().mirrorRGB
-            )
-
-            // getImage() 获取送检图片,如果检测数据有问题，可以通过image view 展示送检图片
-            livenessModel.bdFaceImageInstance = rgbInstance.image
-
-            // 检查函数调用，返回检测结果
-            val startDetectTime = System.currentTimeMillis()
-
-            // 快速检测获取人脸信息，仅用于绘制人脸框，详细人脸数据后续获取
-            val faceInfos: Array<FaceInfo>? = faceDetect.track(
-                BDFaceSDKCommon.DetectType.DETECT_VIS,
-                BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_FAST,
-                rgbInstance
-            )
-            livenessModel.rgbFastDuration = System.currentTimeMillis() - startDetectTime
-
-            // 检测结果判断
-            if (faceInfos != null && faceInfos.isNotEmpty()) {
-                livenessModel.trackFaceInfo = faceInfos
-                livenessModel.faceInfo = faceInfos[0]
-                livenessModel.trackStatus = 1
-                livenessModel.landmarks = faceInfos[0].landmarks
-                // 返回追踪到的人脸  绘制人脸框
-                callback?.run {
-                    onFaceDetectDrawCallback(livenessModel)
-                }
-
-                onAccurateDetect(
-                    rgbInstance,
-                    rgbData,
-                    nirData,
-                    depthData,
-                    srcWidth,
-                    srcHeight,
-                    livenessModel,
-                    faceInfos,
-                    startTime,
-                    callback
+        GlobalScope.launch {
+            job1 = GlobalScope.async(asCoroutineDispatcher) {
+                val startTime = System.currentTimeMillis()
+                // 创建检测结果存储数据
+                val livenessModel = LivenessModel()
+                val rgbInstance = BDFaceImageInstance(
+                    rgbData, srcHeight, srcWidth,
+                    BDFaceSDKCommon.BDFaceImageType.BDFACE_IMAGE_TYPE_YUV_NV21,
+                    SingleBaseConfig.getBaseConfig().detectDirection.toFloat(),
+                    SingleBaseConfig.getBaseConfig().mirrorRGB
                 )
-            } else {
-                // 流程结束 销毁图片，开始下一帧图片检测，防止内存泄漏
-                rgbInstance.destory()
-                callback?.run {
-                    onFaceDetectCallback(null)
-                    onFaceDetectDrawCallback(null)
+
+                // getImage() 获取送检图片,如果检测数据有问题，可以通过image view 展示送检图片
+                livenessModel.bdFaceImageInstance = rgbInstance.image
+
+                // 检查函数调用，返回检测结果
+                val startDetectTime = System.currentTimeMillis()
+
+                // 快速检测获取人脸信息，仅用于绘制人脸框，详细人脸数据后续获取
+                val faceInfos: Array<FaceInfo>? = faceDetect.track(
+                    BDFaceSDKCommon.DetectType.DETECT_VIS,
+                    BDFaceSDKCommon.AlignType.BDFACE_ALIGN_TYPE_RGB_FAST,
+                    rgbInstance
+                )
+                livenessModel.rgbFastDuration = System.currentTimeMillis() - startDetectTime
+
+                // 检测结果判断
+                if (faceInfos != null && faceInfos.isNotEmpty()) {
+                    livenessModel.trackFaceInfo = faceInfos
+                    livenessModel.faceInfo = faceInfos[0]
+                    livenessModel.trackStatus = 1
+                    livenessModel.landmarks = faceInfos[0].landmarks
+                    Log.e("Neoqee","fast detect success")
+                    // 返回追踪到的人脸  绘制人脸框
+                    callback?.run {
+                        onFaceDetectDrawCallback(livenessModel)
+                    }
+
+                    onAccurateDetect(
+                        rgbInstance,
+                        rgbData,
+                        nirData,
+                        depthData,
+                        srcWidth,
+                        srcHeight,
+                        livenessModel,
+                        faceInfos,
+                        startTime,
+                        callback
+                    )
+                } else {
+                    // 流程结束 销毁图片，开始下一帧图片检测，防止内存泄漏
+                    rgbInstance.destory()
+                    callback?.run {
+                        onFaceDetectCallback(null)
+                        onFaceDetectDrawCallback(null)
+                    }
                 }
-            }
+            }.apply { start() }
         }
-            .apply { start() }
     }
 
     private val asCoroutineDispatcher2 = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
-    private var job2: Job? = null
+    private var job2: Deferred<*>? = null
     private fun onAccurateDetect(
         rgbInstance: BDFaceImageInstance,
         rgbData: ByteArray?,
@@ -309,43 +332,46 @@ object BdFaceManager : IFaceManager {
             rgbInstance.destory()
             return
         }
-        job2 = GlobalScope.async(asCoroutineDispatcher2) {
-            val faceInfos = rgbAccurateDetect(rgbInstance, fastFaceInfos, livenessModel)
-            // 重新赋予详细人脸信息
-            if (faceInfos != null && faceInfos.isNotEmpty()) {
-                livenessModel.faceInfo = faceInfos[0]
-                livenessModel.trackStatus = 2
-                livenessModel.landmarks = faceInfos[0].landmarks
-            } else {
+        GlobalScope.launch {
+            job2 = GlobalScope.async(asCoroutineDispatcher2) {
+                val faceInfos = rgbAccurateDetect(rgbInstance, fastFaceInfos, livenessModel)
+                // 重新赋予详细人脸信息
+                if (faceInfos != null && faceInfos.isNotEmpty()) {
+                    livenessModel.faceInfo = faceInfos[0]
+                    livenessModel.trackStatus = 2
+                    livenessModel.landmarks = faceInfos[0].landmarks
+                } else {
+                    rgbInstance.destory()
+                    callback?.onFaceDetectCallback(livenessModel)
+                    return@async
+                }
+
+                mouthMaskCheck(rgbInstance, faceInfos, livenessModel)
+
+                val qualityCheck: Boolean
+                livenessModel.qualityCheckDuration = measureTimeMillis {
+                    qualityCheck = onQualityCheck(livenessModel)
+                }
+                if (!qualityCheck) {
+                    rgbInstance.destory()
+                    callback?.onFaceDetectCallback(livenessModel)
+                    return@async
+                }
+
+                rgbLiveCheck(rgbInstance, livenessModel)
+                val nirInstance = nirLiveCheck(nirData, srcWidth, srcHeight, livenessModel)
+                featureCheck(rgbInstance, livenessModel)
+
+                // 流程结束，记录最终时间
+                livenessModel.allDetectDuration = System.currentTimeMillis() - startTime
+                // 流程结束销毁图片，开始下一帧图片检测，防止内存泄漏
                 rgbInstance.destory()
+                nirInstance.destory()
+                // 显示最终结果提示
                 callback?.onFaceDetectCallback(livenessModel)
                 return@async
-            }
-
-            mouthMaskCheck(rgbInstance, faceInfos, livenessModel)
-
-            val qualityCheck: Boolean
-            livenessModel.qualityCheckDuration = measureTimeMillis {
-                qualityCheck = onQualityCheck(livenessModel)
-            }
-            if (!qualityCheck) {
-                rgbInstance.destory()
-                callback?.onFaceDetectCallback(livenessModel)
-                return@async
-            }
-
-            rgbLiveCheck(rgbInstance, livenessModel)
-            val nirInstance = nirLiveCheck(nirData, srcWidth, srcHeight, livenessModel)
-            featureCheck(rgbInstance, livenessModel)
-
-            // 流程结束，记录最终时间
-            livenessModel.allDetectDuration = System.currentTimeMillis() - startTime
-            // 流程结束销毁图片，开始下一帧图片检测，防止内存泄漏
-            rgbInstance.destory()
-            nirInstance.destory()
-            // 显示最终结果提示
-            callback?.onFaceDetectCallback(livenessModel)
-        }.apply { start() }
+            }.apply { start() }
+        }
     }
 
     private fun rgbAccurateDetect(
